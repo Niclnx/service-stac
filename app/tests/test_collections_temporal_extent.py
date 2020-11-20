@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 API_BASE = settings.API_BASE
 
 
-class CollectionsModelTestCase(TestCase):
+class CollectionsTemporalExtentTestCase(TestCase):
 
     y100 = utc_aware(datetime.strptime('0100-01-01T00:00:00Z', '%Y-%m-%dT%H:%M:%SZ'))
     y150 = utc_aware(datetime.strptime('0150-01-01T00:00:00Z', '%Y-%m-%dT%H:%M:%SZ'))

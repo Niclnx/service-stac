@@ -200,7 +200,7 @@ class Collection(models.Model):
     def __str__(self):
         return self.name
 
-    def update_geoadmin_variants(self, asset_geoadmin_variant, asset_proj_epsg, asset_eo_gsd):
+    def update_summaries(self, asset_geoadmin_variant, asset_proj_epsg, asset_eo_gsd):
         '''
         updates the collection's summaries when assets are updated or raises
         errors when this fails.
@@ -225,6 +225,9 @@ class Collection(models.Model):
                 self.summaries["eo:gsd"].append(asset_eo_gsd)
                 self.save()
 
+            if self.summaries["eo:gsd"] != []:
+                self.summaries["eo:bands"] = []
+
         except KeyError as err:
             logger.error(
                 "Error when updating collection's summaries values due to asset update: %s", err
@@ -232,6 +235,7 @@ class Collection(models.Model):
             raise ValidationError(_(
                 "Error when updating collection's summaries values due to asset update."
             ))
+
 
     def update_bbox_extent(self, action, item_geom, item_id, item_name):
         '''
@@ -308,6 +312,29 @@ class Collection(models.Model):
             )
 
         self.save()
+
+
+
+    def update_eo_gsd(self, item_id):
+        '''
+        updates the collection summaries_eo_gsd when an item is deleted or
+        raises errors when this fails
+        :param item_id: id of the item to be deleted
+        This function checks, if the collection's summaries["eo:gsd"] property
+        needs to be updated. If so, it will be either
+        updated or an error will be raised, if updating fails.
+        '''
+        items = Item.objects.filter(collection_id=self.pk).filter(properties_eo_gsd__isnull=False).exclude(id=item_id)
+        
+        if bool(items):
+            self.summaries["eo:gsd"] = min([
+                item.properties_eo_gsd for item in items if item.properties_eo_gsd is not None
+            ])
+        elif "eo:gsd" in self.summaries:
+            del self.summaries["eo:gsd"]
+
+        self.save()
+
 
     def clean(self):
         # very simple validation, raises error when geoadmin_variant strings contain special
@@ -495,6 +522,9 @@ class Item(models.Model):
             )
 
         self.collection.update_bbox_extent('rm', self.geometry, self.pk, self.name)
+
+        self.collection.update_eo_gsd(self.pk)
+
         super().delete(*args, **kwargs)
 
     def validate_datetime_properties(self):
@@ -592,7 +622,7 @@ class Asset(models.Model):
     # alter save-function, so that the corresponding collection of the parent item of the asset
     # is saved, too.
     def save(self, *args, **kwargs):  # pylint: disable=signature-differs
-        self.item.collection.update_geoadmin_variants(
+        self.item.collection.update_summaries(
             self.geoadmin_variant, self.proj_epsg, self.eo_gsd
         )
         if self.eo_gsd is not None:
