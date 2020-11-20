@@ -35,7 +35,6 @@ BBOX_CH = str(_BBOX_CH)
 # HINT: Use a callable instead, e.g., use `list` instead of `[]`.""
 # <end quote>
 DEFAULT_STAC_EXTENSIONS = {
-    "EO": "eo",
     "PROJ": "proj",
     "VIEW": "view",
     "GEOADMIN-EXTENSION": "https://data.geo.admin.ch/stac/geoadmin-extension/1.0/schema.json"
@@ -46,9 +45,11 @@ DEFAULT_EXTENT_VALUE = {"spatial": {"bbox": [[None]]}, "temporal": {"interval": 
 DEFAULT_SUMMARIES_VALUE = {"eo:gsd": [], "geoadmin:variant": [], "proj:epsg": []}
 
 
-def get_default_stac_extensions(is_collection=False):
+def get_default_stac_extensions(is_collection=False, eo_gsd=False):
     if is_collection:
         return list()
+    elif is eo_gsd:
+        DEFAULT_STAC_EXTENSIONS["EO"] = "eo"
     return list(DEFAULT_STAC_EXTENSIONS.values())
 
 

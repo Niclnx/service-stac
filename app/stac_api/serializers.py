@@ -381,7 +381,10 @@ class ItemSerializer(NonNullModelSerializer):
     stac_version = serializers.SerializerMethodField()
 
     def get_stac_extensions(self, obj):
-        return get_default_stac_extensions()
+        if obj.properties_eo_gsd is not None: # pylint: disable=no-else-return
+            return get_default_stac_extensions(True)
+        else:
+            return get_default_stac_extensions()
 
     def get_stac_version(self, obj):
         return "0.9.0"
@@ -417,4 +420,8 @@ class ItemSerializer(NonNullModelSerializer):
                 ('href', request.build_absolute_uri(f'/{api}collections/{collection}')),
             ])
         ]
+
+        if "eo:gsd" in representation["properties"]:
+            representation["properties"]["eo:bands"] = []
+
         return representation
