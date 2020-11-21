@@ -45,10 +45,15 @@ DEFAULT_EXTENT_VALUE = {"spatial": {"bbox": [[None]]}, "temporal": {"interval": 
 DEFAULT_SUMMARIES_VALUE = {"eo:gsd": [], "geoadmin:variant": [], "proj:epsg": []}
 
 
+<<<<<<< HEAD
 def get_default_stac_extensions(is_collection=False, eo_gsd=False):
     if is_collection:
         return list()
     elif is eo_gsd:
+=======
+def get_default_stac_extensions(eo_gsd=False):
+    if eo_gsd:
+>>>>>>> BGDIINF_SB-1410 * eo also in stac_extensions of collection
         DEFAULT_STAC_EXTENSIONS["EO"] = "eo"
     return list(DEFAULT_STAC_EXTENSIONS.values())
 
@@ -223,6 +228,7 @@ class Collection(models.Model):
 
             if asset_eo_gsd and not float_in(asset_eo_gsd, self.summaries["eo:gsd"]):
                 self.summaries["eo:gsd"].append(asset_eo_gsd)
+                self.summaries["eo:gsd"].sort()
                 self.save()
 
             if self.summaries["eo:gsd"] != []:
@@ -235,7 +241,6 @@ class Collection(models.Model):
             raise ValidationError(_(
                 "Error when updating collection's summaries values due to asset update."
             ))
-
 
     def update_bbox_extent(self, action, item_geom, item_id, item_name):
         '''
@@ -313,28 +318,32 @@ class Collection(models.Model):
 
         self.save()
 
-
-
-    def update_eo_gsd(self, item_id):
+    def update_eo_gsd(self, item_id, item_eo_gsd):
         '''
         updates the collection summaries_eo_gsd when an item is deleted or
         raises errors when this fails
-        :param item_id: id of the item to be deleted
+        :param item_id: id of the item to be deleted.
+        :param item_eo_gsd: value of eo_gsd of the item to be delted.
         This function checks, if the collection's summaries["eo:gsd"] property
         needs to be updated. If so, it will be either
         updated or an error will be raised, if updating fails.
         '''
-        items = Item.objects.filter(collection_id=self.pk).filter(properties_eo_gsd__isnull=False).exclude(id=item_id)
-        
-        if bool(items):
-            self.summaries["eo:gsd"] = min([
-                item.properties_eo_gsd for item in items if item.properties_eo_gsd is not None
-            ])
-        elif "eo:gsd" in self.summaries:
-            del self.summaries["eo:gsd"]
-
-        self.save()
-
+        if item_eo_gsd is not None:
+            # check if other items left in collection have the same eo_gsd as the one being deleted:
+            items = Item.objects.filter(collection_id=self.pk
+                                       ).filter(properties_eo_gsd=item_eo_gsd).exclude(id=item_id)
+            if not bool(items):
+                # drop the item_eo_gsd value from collection's summaries["eo:gsd"]
+                try:
+                    self.summaries["eo:gsd"].remove(item_eo_gsd)
+                    self.save()
+                except ValueError as err:
+                    logger.error(
+                        "Error %s when trying to delete eo_gsd value: %s from collection: %s",
+                        err,
+                        item_eo_gsd,
+                        self.name
+                    )
 
     def clean(self):
         # very simple validation, raises error when geoadmin_variant strings contain special
@@ -522,8 +531,7 @@ class Item(models.Model):
             )
 
         self.collection.update_bbox_extent('rm', self.geometry, self.pk, self.name)
-
-        self.collection.update_eo_gsd(self.pk)
+        self.collection.update_eo_gsd(self.pk, self.properties_eo_gsd)
 
         super().delete(*args, **kwargs)
 
@@ -622,9 +630,7 @@ class Asset(models.Model):
     # alter save-function, so that the corresponding collection of the parent item of the asset
     # is saved, too.
     def save(self, *args, **kwargs):  # pylint: disable=signature-differs
-        self.item.collection.update_summaries(
-            self.geoadmin_variant, self.proj_epsg, self.eo_gsd
-        )
+        self.item.collection.update_summaries(self.geoadmin_variant, self.proj_epsg, self.eo_gsd)
         if self.eo_gsd is not None:
             self.item.update_properties_eo_gsd(self)
 

@@ -184,7 +184,14 @@ class CollectionSerializer(NonNullModelSerializer):
         return ["http://www.opengis.net/def/crs/OGC/1.3/CRS84"]
 
     def get_stac_extensions(self, obj):
+<<<<<<< HEAD
         return get_default_stac_extensions(True)
+=======
+        if "eo:bands" in obj.summaries:  # pylint: disable=no-else-return
+            return get_default_stac_extensions(True)
+        else:
+            return get_default_stac_extensions()
+>>>>>>> BGDIINF_SB-1410 * eo also in stac_extensions of collection
 
     def get_stac_version(self, obj):
         return "0.9.0"
@@ -381,7 +388,7 @@ class ItemSerializer(NonNullModelSerializer):
     stac_version = serializers.SerializerMethodField()
 
     def get_stac_extensions(self, obj):
-        if obj.properties_eo_gsd is not None: # pylint: disable=no-else-return
+        if obj.properties_eo_gsd is not None:  # pylint: disable=no-else-return
             return get_default_stac_extensions(True)
         else:
             return get_default_stac_extensions()
