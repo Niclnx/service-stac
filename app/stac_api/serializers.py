@@ -184,14 +184,13 @@ class CollectionSerializer(NonNullModelSerializer):
         return ["http://www.opengis.net/def/crs/OGC/1.3/CRS84"]
 
     def get_stac_extensions(self, obj):
-<<<<<<< HEAD
-        return get_default_stac_extensions(True)
-=======
-        if "eo:bands" in obj.summaries:  # pylint: disable=no-else-return
-            return get_default_stac_extensions(True)
-        else:
-            return get_default_stac_extensions()
->>>>>>> BGDIINF_SB-1410 * eo also in stac_extensions of collection
+        if "geoadmin:variant" in obj.summaries:
+            if "eo:bands" in obj.summaries:
+                return get_default_stac_extensions(is_collection=True, eo_gsd=True, geoadmin_ext=True)
+            else:
+                return get_default_stac_extensions(is_collection=True, eo_gsd=False, geoadmin_ext=True)
+
+        return get_default_stac_extensions(is_collection=True, eo_gsd=False, geoadmin_ext=False)
 
     def get_stac_version(self, obj):
         return "0.9.0"
@@ -354,7 +353,7 @@ class AssetSerializer(NonNullModelSerializer):
         fields['geoadmin:variant'] = fields.pop('geoadmin_variant')
         fields['geoadmin:lang'] = fields.pop('geoadmin_lang')
         fields['checksum:multihash'] = fields.pop('checksum_multihash')
-        logger.debug('Updated fields name: %s', fields)
+        # logger.debug('Updated fields name: %s', fields)
         return fields
 
 
@@ -388,10 +387,16 @@ class ItemSerializer(NonNullModelSerializer):
     stac_version = serializers.SerializerMethodField()
 
     def get_stac_extensions(self, obj):
-        if obj.properties_eo_gsd is not None:  # pylint: disable=no-else-return
-            return get_default_stac_extensions(True)
-        else:
-            return get_default_stac_extensions()
+        # TODO: Find a more performat way for this. This is a query of all assets in the items, only to
+        # find out, if at least one of those items has a geoadmin_variant defined.
+        # very cost intensive...
+        assets=Asset.objects.filter(item=obj.id).filter(geoadmin_variant__isnull=False)
+        if bool(assets):
+            if obj.properties_eo_gsd is not None:
+                return get_default_stac_extensions(is_collection=False, eo_gsd=True, geoadmin_ext=True)
+            else:
+                return get_default_stac_extensions(is_collection=False, eo_gsd=False, geoadmin_ext=True)
+        return get_default_stac_extensions(is_collection=False, eo_gsd=False, geoadmin_ext=False)
 
     def get_stac_version(self, obj):
         return "0.9.0"

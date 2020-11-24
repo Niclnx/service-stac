@@ -37,7 +37,6 @@ BBOX_CH = str(_BBOX_CH)
 DEFAULT_STAC_EXTENSIONS = {
     "PROJ": "proj",
     "VIEW": "view",
-    "GEOADMIN-EXTENSION": "https://data.geo.admin.ch/stac/geoadmin-extension/1.0/schema.json"
 }
 
 DEFAULT_EXTENT_VALUE = {"spatial": {"bbox": [[None]]}, "temporal": {"interval": [[None, None]]}}
@@ -45,22 +44,19 @@ DEFAULT_EXTENT_VALUE = {"spatial": {"bbox": [[None]]}, "temporal": {"interval": 
 DEFAULT_SUMMARIES_VALUE = {"eo:gsd": [], "geoadmin:variant": [], "proj:epsg": []}
 
 
-<<<<<<< HEAD
-def get_default_stac_extensions(is_collection=False, eo_gsd=False):
+def get_default_stac_extensions(is_collection=False, eo_gsd=False, geoadmin_ext=False):
     if is_collection:
         return list()
-    elif is eo_gsd:
-=======
-def get_default_stac_extensions(eo_gsd=False):
-    if eo_gsd:
->>>>>>> BGDIINF_SB-1410 * eo also in stac_extensions of collection
-        DEFAULT_STAC_EXTENSIONS["EO"] = "eo"
+    else:
+        if eo_gsd:
+            DEFAULT_STAC_EXTENSIONS["EO"] = "eo"
+        if geoadmin_ext:
+            DEFAULT_STAC_EXTENSIONS["GEOADMIN-EXTENSION"] = "https://data.geo.admin.ch/stac/geoadmin-extension/1.0/schema.json"
     return list(DEFAULT_STAC_EXTENSIONS.values())
 
 
 def get_default_extent_value():
     return DEFAULT_EXTENT_VALUE
-
 
 def get_default_summaries_value():
     return DEFAULT_SUMMARIES_VALUE
@@ -226,11 +222,6 @@ class Collection(models.Model):
                 self.summaries["proj:epsg"].append(asset_proj_epsg)
                 self.save()
 
-            if asset_eo_gsd and not float_in(asset_eo_gsd, self.summaries["eo:gsd"]):
-                self.summaries["eo:gsd"].append(asset_eo_gsd)
-                self.summaries["eo:gsd"].sort()
-                self.save()
-
             if self.summaries["eo:gsd"] != []:
                 self.summaries["eo:bands"] = []
 
@@ -318,32 +309,62 @@ class Collection(models.Model):
 
         self.save()
 
-    def update_eo_gsd(self, item_id, item_eo_gsd):
+    def update_eo_gsd(self, item, deleted=False):
         '''
         updates the collection summaries_eo_gsd when an item is deleted or
-        raises errors when this fails
-        :param item_id: id of the item to be deleted.
-        :param item_eo_gsd: value of eo_gsd of the item to be delted.
+        updated or raises errors when this fails
+        :param item: item that is updated or deleted.
+        :param deleted: true for deletion, false for update.
         This function checks, if the collection's summaries["eo:gsd"] property
         needs to be updated. If so, it will be either
         updated or an error will be raised, if updating fails.
         '''
-        if item_eo_gsd is not None:
-            # check if other items left in collection have the same eo_gsd as the one being deleted:
-            items = Item.objects.filter(collection_id=self.pk
-                                       ).filter(properties_eo_gsd=item_eo_gsd).exclude(id=item_id)
+        if deleted:
+            # check if items eo_gsd is also in other items. If so, no deletion, otherwise 
+            # delete from collections eo_gsd
+            items = Item.objects.filter(collection_id=self.pk).filter(properties_eo_gsd=item.properties_eo_gsd).exclude(id=item.id)
             if not bool(items):
-                # drop the item_eo_gsd value from collection's summaries["eo:gsd"]
                 try:
-                    self.summaries["eo:gsd"].remove(item_eo_gsd)
+                    self.summaries["eo:gsd"].remove(item.properties_eo_gsd)
                     self.save()
                 except ValueError as err:
                     logger.error(
                         "Error %s when trying to delete eo_gsd value: %s from collection: %s",
                         err,
-                        item_eo_gsd,
+                        item.properties_eo_gsd,
                         self.name
                     )
+                    raise ValidationError(_(
+                        f"Error {err} when trying to delete eo_gsd value: {item.properties_eo_gsd}"
+                        f"from collection: {self.name}",
+                    ))
+
+        else:
+            if item._original_properties_eo_gsd in self.summaries["eo:gsd"]:
+                items = Item.objects.filter(collection_id=self.pk).filter(properties_eo_gsd=item._original_properties_eo_gsd).exclude(id=item.id)
+                if not bool(items):
+                    try:
+                        self.summaries["eo:gsd"].remove(item._original_properties_eo_gsd)
+                        self.save()
+                    except ValueError as err:
+                        logger.error(
+                            "Error %s when trying to delete eo_gsd value: %s from collection: %s",
+                            err,
+                            item.properties_eo_gsd,
+                            self.name
+                        )
+                        raise ValidationError(_(
+                            f"Error {err} when trying to delete eo_gsd value: {item.properties_eo_gsd}"
+                            f"from collection: {self.name}",
+                        ))
+
+
+            if item.properties_eo_gsd not in self.summaries["eo:gsd"]:
+                self.summaries["eo:gsd"].append(item.properties_eo_gsd)
+                self.summaries["eo:gsd"].sort()
+                self.save()
+
+ 
 
     def clean(self):
         # very simple validation, raises error when geoadmin_variant strings contain special
@@ -402,6 +423,7 @@ class Item(models.Model):
     __original_properties_start_datetime = None
     __original_properties_end_datetime = None
     __original_properties_datetime = None
+    _original_properties_eo_gsd = None
 
     def __init__(self, *args, **kwargs):
         super(Item, self).__init__(*args, **kwargs)
@@ -409,6 +431,7 @@ class Item(models.Model):
         self.__original_properties_start_datetime = self.properties_start_datetime
         self.__original_properties_end_datetime = self.properties_end_datetime
         self.__original_properties_datetime = self.properties_datetime
+        self._original_properties_eo_gsd = self.properties_eo_gsd
 
     def __str__(self):
         return self.name
@@ -497,12 +520,16 @@ class Item(models.Model):
         elif self.geometry != self._original_geometry:
             self.collection.update_bbox_extent('update', self.geometry, self.pk, self.name)
 
+        if self.properties_eo_gsd != self._original_properties_eo_gsd or self.pk is None:
+            self.collection.update_eo_gsd(self, deleted=False)
+
         super().save(*args, **kwargs)
 
         self._original_geometry = self.geometry
         self.__original_properties_start_datetime = self.properties_start_datetime
         self.__original_properties_end_datetime = self.properties_end_datetime
         self.__original_properties_datetime = self.properties_datetime
+        self._original_properties_eo_gsd = self.properties_eo_gsd
 
     def delete(self, *args, **kwargs):  # pylint: disable=signature-differs
         # It is important to use `*args, **kwargs` in signature because django might add dynamically
@@ -531,7 +558,7 @@ class Item(models.Model):
             )
 
         self.collection.update_bbox_extent('rm', self.geometry, self.pk, self.name)
-        self.collection.update_eo_gsd(self.pk, self.properties_eo_gsd)
+        self.collection.update_eo_gsd(self, deleted=True)
 
         super().delete(*args, **kwargs)
 
@@ -557,10 +584,9 @@ class Item(models.Model):
         '''
         updates the item's properties_eo_gsd when assets are updated or
         raises errors when this fails
-        :param asset: asset's that has been updated/added/deleted
+        :param asset: asset that has been updated/added/deleted
         :param deleted: asset has been deleted
-
-        This function checks, if the item's properties_eo_gds property
+        This function checks, if the item's properties_eo_gsd property
         needs to be updated. If so, it will be either
         updated or an error will be raised, if updating fails.
         '''
